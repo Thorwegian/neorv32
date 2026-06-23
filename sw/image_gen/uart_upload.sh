@@ -23,15 +23,25 @@ fi
 FILESIZE=$(stat -c%s "$2")
 TIMEOUT=$(( (FILESIZE / (BAUD/10)) + 2 ))
 
+
+# Send hardware break reset BEFORE opening the permanent file descriptor
+printf "Resetting processor via hardware break... "
+python3 -c "import serial; s=serial.Serial('$1', 4800, parity=serial.PARITY_SPACE); s.write(b'\x00'); s.flush(); s.close()"
+printf "OK\n"
+
+# Give the bootloader a moment to recover
+sleep 0.1
+
 # setup serial port
 printf "Opening serial port ($1)... "
-stty -F $1 $BAUD -hup raw -echo cs8 -cstopb -ixon clocal cread
+stty -F $1 $BAUD -hupcl raw -echo cs8 -cstopb -ixon clocal cread
 exec 3<>$1
 printf "OK\n"
 
 # send executable
 printf "Uploading executable ($FILESIZE bytes)... "
-printf " u" >&3 # skip auto-boot (SPACE) and start upload ('u')
+printf "u" >&3 # skip auto-boot (SPACE) and start upload ('u')
+sleep 0.1
 cat $2 >&3 # send executable
 
 # wait for upload to complete and check bootloader response
@@ -40,8 +50,8 @@ EXPIRED=$(( SECONDS + TIMEOUT ))
 PATTERN="OK"
 BUFFER=""
 while [ $SECONDS -lt $EXPIRED ]; do
-  if read -r -n 1 -u 3 -t 1 CH; then
-    BUFFER+=$CH
+  if IFS= read -r -n 1 -u 3 -t 1 CH; then
+    BUFFER+="$CH"
     UPOLOAD_OK=-1
     if [[ "$BUFFER" == *"$PATTERN"* ]]; then
       UPOLOAD_OK=1
